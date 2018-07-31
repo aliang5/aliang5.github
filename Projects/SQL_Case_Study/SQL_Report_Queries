@@ -1,0 +1,137 @@
+Query 1:
+SELECT DATE_TRUNC('week', occurred_at) AS Week,
+       COUNT(DISTINCT user_id) AS weekly_active_users
+FROM tutorial.yammer_events
+WHERE event_type = 'engagement'
+AND event_name = 'login'
+GROUP BY Week
+ORDER BY Week
+
+Query 2:
+/*active users count by top 10 countries during the engagement dip period*/
+SELECT Date_Trunc('week', occurred_at) AS Week, location,
+COUNT(DISTINCT user_id) AS Active_users_count
+FROM tutorial.yammer_events
+WHERE event_type = 'engagement'
+ AND event_name = 'login'
+ AND occurred_at >= '2014-07-14'
+ AND occurred_at < '2014-08-25'
+ AND location IN
+  (/*get top 10 countries based on active users count*/ 
+      (SELECT location
+      FROM tutorial.yammer_events
+      WHERE event_type = 'engagement'
+      GROUP BY 1
+      ORDER BY COUNT(DISTINCT user_id) DESC LIMIT 10)
+      GROUP BY 1, 2
+      ORDER BY 1, 2)
+
+Query 3:
+/*excluding USA : active users count by top 10 countries during the engagement dip period 07/14 to 8/25 */
+SELECT Date_Trunc('week', occurred_at) AS Week, location,
+       COUNT(DISTINCT user_id) AS Active_Users_count
+FROM tutorial.yammer_events
+WHERE event_type = 'engagement'
+AND event_name = 'login'
+AND occurred_at >= '2014-07-14'
+AND occurred_at < '2014-08-25'
+AND location IN
+       (SELECT location
+        FROM tutorial.yammer_events
+        WHERE location <> 'United States'
+        AND event_type = 'engagement'
+        GROUP BY location
+        ORDER BY Count(DISTINCT user_id) DESC LIMIT 10)
+        GROUP BY 1, 2
+        ORDER BY 1, 2)
+
+Query 4:
+SELECT Date_TRUNC('month', activated_at) AS Activation_Month,
+       COUNT(user_id) AS New_Users_Count
+FROM tutorial.yammer_users
+WHERE activated_at IS NOT NULL
+AND Created_at >= '2014-01-01'
+GROUP BY 1
+ORDER BY 1
+
+Query 5:
+SELECT DATE_TRUNC('week',z.occurred_at) AS "week",
+    AVG(z.age_at_event) AS "Average age during week",
+    COUNT(DISTINCT CASE WHEN z.user_age > 70 THEN z.user_id ELSE NULL END) AS "10+ weeks",
+    COUNT(DISTINCT CASE WHEN z.user_age < 70 AND z.user_age >= 63 THEN z.user_id ELSE NULL END) AS "9 weeks",
+    COUNT(DISTINCT CASE WHEN z.user_age < 63 AND z.user_age >= 56 THEN z.user_id ELSE NULL END) AS "8 weeks",
+    COUNT(DISTINCT CASE WHEN z.user_age < 56 AND z.user_age >= 49 THEN z.user_id ELSE NULL END) AS "7 weeks",
+    COUNT(DISTINCT CASE WHEN z.user_age < 49 AND z.user_age >= 42 THEN z.user_id ELSE NULL END) AS "6 weeks",
+    COUNT(DISTINCT CASE WHEN z.user_age < 42 AND z.user_age >= 35 THEN z.user_id ELSE NULL END) AS "5 weeks",
+    COUNT(DISTINCT CASE WHEN z.user_age < 35 AND z.user_age >= 28 THEN z.user_id ELSE NULL END) AS "4 weeks",
+    COUNT(DISTINCT CASE WHEN z.user_age < 28 AND z.user_age >= 21 THEN z.user_id ELSE NULL END) AS "3 weeks",
+    COUNT(DISTINCT CASE WHEN z.user_age < 21 AND z.user_age >= 14 THEN z.user_id ELSE NULL END) AS "2 weeks",
+    COUNT(DISTINCT CASE WHEN z.user_age < 14 AND z.user_age >= 7 THEN z.user_id ELSE NULL END) AS "1 week",
+    COUNT(DISTINCT CASE WHEN z.user_age < 7 THEN z.user_id ELSE NULL END) AS "Less than a week"
+ FROM (
+        SELECT e.occurred_at,
+        u.user_id,
+        DATE_TRUNC('week',u.activated_at) AS activation_week,
+        EXTRACT('day' FROM e.occurred_at - u.activated_at) AS age_at_event,
+        EXTRACT('day' FROM '2014-09-01'::TIMESTAMP - u.activated_at) AS user_age
+        FROM tutorial.yammer_users u
+        JOIN tutorial.yammer_events e
+        ON e.user_id = u.user_id
+        AND e.event_type = 'engagement'
+        AND e.event_name = 'login'
+        AND e.occurred_at >= '2014-05-01'
+        AND e.occurred_at < '2014-09-01'
+        WHERE u.activated_at IS NOT NULL)z
+ GROUP BY 1
+ ORDER BY 1
+
+Query 6:
+SELECT a.*,
+lag(weekly_active_users) OVER (PARTITION BY device_type ORDER BY week, device_type) AS rows,
+weekly_active_users - lag(weekly_active_users) OVER (PARTITION BY device_type ORDER BY week, device_type) as diff,
+(weekly_active_users - lag(weekly_active_users) OVER( PARTITION BY device_type ORDER BY week, device_type)) * 100/ weekly_active_users AS pct_change
+FROM
+    (SELECT 
+    DATE_TRUNC('week', occurred_at) as week,
+    CASE WHEN device IN ('macbook pro','lenovo thinkpad','macbook air',
+    'dell inspiron notebook','asus chromebook','dell inspiron desktop','acer aspire notebook',
+    'hp pavilion desktop','acer aspire desktop','mac mini') THEN 'Computer'
+    WHEN device IN ('iphone 5','samsung galaxy s4','nexus 5','iphone 5s',
+    'iphone 4s','nokia lumia 635','htc one','samsung galaxy note','amazon fire phone') THEN 'Phone'
+    WHEN device IN ('ipad air','nexus 7','ipad mini','nexus 10','kindle fire','windows surface',
+    'samsumg galaxy tablet') THEN 'Tablet' ELSE NULL END AS device_type,
+    COUNT(DISTINCT user_id) AS weekly_active_users
+    FROM tutorial.yammer_events 
+    WHERE event_type = 'engagement'
+    AND event_name = 'login'
+    AND occurred_at >= '2014-07-01'
+    AND occurred_at <'2014-09-01'
+GROUP BY 1,2) a
+
+Query 7:
+/* active users per activity type*/
+SELECT a.*,
+lag(weekly_active_users) OVER (PARTITION BY event_name ORDER BY week, event_name),
+ weekly_active_users - lag(weekly_active_users) OVER (PARTITION BY event_name ORDER BY week, event_name) AS diff,
+(weekly_active_users - lag(weekly_active_users) OVER (PARTITION BY event_name ORDER BY week, event_name)) *100/ weekly_active_users AS pct_change
+FROM
+    (SELECT event_name,
+    DATE_TRUNC('week', occurred_at) AS week,
+    COUNT(DISTINCT user_id) AS weekly_active_users
+    FROM tutorial.yammer_events 
+    WHERE event_type = 'engagement'
+    AND event_name NOT LIKE '%search%'
+    AND occurred_at >= '2014-07-01'
+    AND occurred_at < '2014-09-01'
+    GROUP BY 1,2
+ 
+     UNION ALL
+     
+     SELECT action,
+    DATE_TRUNC('week', occurred_at) As week,
+    COUNT(DISTINCT user_id) 
+    FROM tutorial.yammer_emails 
+    WHERE occurred_at >='2014-07-01'
+    AND occurred_at < '2014-09-01'
+    group by 1,2)a
+
